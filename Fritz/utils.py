@@ -13,7 +13,7 @@ from astropy.time import Time
 import os
 
 SKYPORTAL_HOST = os.getenv("SKYPORTAL_HOST", "https://fritz.science")
-SKYPORTAL_TOKEN = os.getenv("SKYPORTAL_TOKEN")
+SKYPORTAL_TOKEN = '859d2347-eaed-4606-aa46-d811493d8196'
 if SKYPORTAL_TOKEN is None:
     raise ValueError("Please set the SKYPORTAL_TOKEN environment variable")
 HEADERS = {"Authorization": f"token {SKYPORTAL_TOKEN}"}
@@ -73,6 +73,7 @@ def get_params(event_dict):
         for item in event_dict["voe:VOEvent"]["What"]["Group"]
         if item.get("@name") == "GW_SKYMAP"
     )
+    
     skymap_response = requests.get(skymap_url)
     skymap_bytes = skymap_response.content
     skymap = Table.read(BytesIO(skymap_bytes))
@@ -94,9 +95,9 @@ def get_params(event_dict):
     distmean = skymap.meta.get("DISTMEAN", "error")
     area_90 = pixel_area_deg2
 
-    has_ns = float(properties.get("HasNS", 0))
-    has_remnant = float(properties.get("HasRemnant", 0))
-    has_mass_gap = float(properties.get("HasMassGap", 0))
+    has_ns = float(properties[0].get("HasNS", 0))
+    has_remnant = float(properties[0].get("HasRemnant", 0))
+    has_mass_gap = float(properties[0].get("HasMassGap", 0))
     PAstro = 1 - prob_ter
 
     far_format = 1.0 / (far * 3.15576e7)
@@ -127,8 +128,6 @@ def get_params(event_dict):
         far_format,
         distmean,
         area_90,
-        longitude,
-        latitude,
         has_ns,
         has_remnant,
         has_mass_gap,
@@ -151,6 +150,7 @@ def predict_with_uncertainty(model, X, n_iter=1000):
 def fetch_event_id(time):
     response = requests.get(f"{SKYPORTAL_HOST}/api/gcn_event/{time}", headers=HEADERS)
     if response.status_code != 200:
+        print("Error bud")
         raise ValueError(
             f"Failed to fetch event id: {response.status_code} ({response.text})"
         )
@@ -159,6 +159,8 @@ def fetch_event_id(time):
 
 def post_comment_to_skyportal(time, buffer: BytesIO, superevent_id, alert_type):
     event_id = fetch_event_id(time)
+    print(event_id)
+    print(superevent_id)
     body = base64.b64encode(buffer.getvalue()).decode("utf-8")
     files = {
         "text": f"Oracle: {superevent_id} ({alert_type})",
@@ -172,6 +174,7 @@ def post_comment_to_skyportal(time, buffer: BytesIO, superevent_id, alert_type):
     if response.status_code == 200:
         print("Comment posted successfully")
     else:
+        print("Screw up")
         raise ValueError(
             f"Failed to post comment: {response.status_code} ({response.text})"
         )
@@ -199,7 +202,7 @@ def plot_all_light_curves_with_uncertainty(
         uncertainty_curve_new = uncertainty[example_idx]
 
         # Create a plot for the predicted light curve and uncertainty
-        plt.figure(figsize=(10, 6))
+        fig = plt.figure(figsize=(10, 6))
 
         for i in range(3):  # 3 filters
             # Plot the mean predicted light curve
@@ -222,12 +225,14 @@ def plot_all_light_curves_with_uncertainty(
         plt.ylabel("Magnitude AB")
         plt.gca().invert_yaxis()  # Invert the y-axis for magnitude
         plt.legend()
-        # plt.show()
+        plt.show()
+        print("me")
+        plt.savefig(superevent_id+'.png')
 
         buffer = BytesIO()
         plt.savefig(buffer, format="png", bbox_inches="tight")  # Save to buffer
         buffer.seek(0)
-        # plt.show()  # Show the plot after saving
+        plt.show()  # Show the plot after saving
         plt.close()  # Close the figure to free memory
 
         post_comment_to_skyportal(time, buffer, superevent_id, alert_type)

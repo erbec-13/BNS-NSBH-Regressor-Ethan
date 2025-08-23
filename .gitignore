@@ -3,4 +3,6 @@ __pycache__/
 .venv/
 venv/
 env/
+coopenv/
+Fritz/coopenv11/
 docker-compose.yaml
