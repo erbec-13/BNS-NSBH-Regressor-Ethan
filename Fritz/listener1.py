@@ -94,9 +94,11 @@ print("Loading model and scalers...")
 target_scaler = load(f"{base_dir}/target_scaler_PAstro.joblib")
 feature_scaler = load(f"{base_dir}/feature_scaler_PAstro.joblib")
 print("Building LSTM model once...")
-num_time_points = 90
-input_shape = (num_time_points, feature_scaler.transform(np.zeros((1, 6))).shape[1])
-model = build_lstm_model(input_shape=input_shape)
+num_time_points = 30
+input_shape = (num_time_points, feature_scaler.transform(np.zeros((1, 8))).shape[1])
+model = load(f"{base_dir}/LSTMpredLC__PAstro.joblib")
+print(feature_scaler.feature_names_in_)
+
 
 counter = 0
 while counter<2:
@@ -126,6 +128,8 @@ while counter<2:
                 PAstro,
                 time,
                 skymap_type,
+                longitude,
+                latitude
             ) = params
 
             print(superevent_id + " " + alert_type)
@@ -136,15 +140,15 @@ while counter<2:
                 X = pd.DataFrame(
                     np.vstack(
                         (
+                            area_90,
                             distmean,
                             has_ns,
                             has_remnant,
                             has_mass_gap,
-                            area_90,
                             PAstro,
                         )
                     ).T,
-                    columns=["distance", "HasNS", "HasRemnant", "HasMassGap", "area(90)", "PAstro"]
+                    columns=["area(90)", "distance", "HasNS", "HasRemnant", "HasMassGap", "PAstro"]
                 )
 
                 # Time array
@@ -155,13 +159,11 @@ while counter<2:
                 filter_order = 3
 
                 # Standardize the target data
-                
+                X_new = feature_scaler.transform(X)
 
                 # Reshape X data for LSTM input based on the model's input shape
-                X_reshaped = np.tile(X, (1, num_time_points)).reshape((X.shape[0], num_time_points, X.shape[1]))
+                X_new_reshaped = np.tile(X_new, (1, num_time_points)).reshape((X_new.shape[0], num_time_points, X_new.shape[1]))
                 #X_new_reshaped = X_new.reshape((X_new.shape[0], 90, X_new.shape[1]))
-
-                X_new = feature_scaler.transform(X_reshaped)
 
                 #X_tiled = np.tile(X_new, (1, num_time_points)).reshape((X_new.shape[0], num_time_points, X_new.shape[1]))
 
