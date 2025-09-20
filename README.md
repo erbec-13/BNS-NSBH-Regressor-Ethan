@@ -1,17 +1,29 @@
 # Navigating the Repository
-All the relevant files can be found in the Fritz folder:\
-  **listener1.py** - The Listener 1 script that currently runs indefinitely and interacts with events.json to save events as outlined below\
-  **listener2.py** - The Listener 2 script that currently runs one time and interacts with events.json to retrieve events as outlined below and then cross references them with sources from Fritz\
-  **utils.py** - The script where all the functions authored by Natalya Pletskova exist\
-  **LSTM_model_production.h5** - The machine learning prediction model created by Natalya Pletskova\
-  **feature_scaler_O4.joblib** - The feature scaler file currently in use with the model\
-  **target_scaler_O4.joblib** - The target scaler file currently in use with the model\
-  **requirements.txt** - A list of all the required libraries to have installed before running the code\
-  **events.json** - A database where the events from Listener 1 are stored and then accessed by Listener 2\
-  **source_ids.txt** - A database containing every source id that has been processed by Listener 2\
-  **S\*.png** - An image of the plot for event S\*'s prediction\
-  **ZTF\*.png** - An image of the plot for source ZTF\*'s photometry data mapped onto one of its matching events\
-  ***skymaps*** - A directory filled with all the skymaps that get retrieved by Listener 2
+All the relevant files can be found in the Fritz folder:
+
+&nbsp;&nbsp;&nbsp;&nbsp;**listener1.py** - The Listener 1 script that currently runs indefinitely and interacts with events.json to save events as outlined below
+  
+&nbsp;&nbsp;&nbsp;&nbsp;**listener2.py** - The Listener 2 script that currently runs one time and interacts with events.json to retrieve events as outlined below and then cross references them with sources from Fritz
+  
+&nbsp;&nbsp;&nbsp;&nbsp;**utils.py** - The script where all the functions authored by Natalya Pletskova exist
+  
+&nbsp;&nbsp;&nbsp;&nbsp;**LSTM_model_production.h5** - The machine learning prediction model created by Natalya Pletskova
+
+&nbsp;&nbsp;&nbsp;&nbsp;**feature_scaler_O4.joblib** - The feature scaler file currently in use with the model
+
+&nbsp;&nbsp;&nbsp;&nbsp;**target_scaler_O4.joblib** - The target scaler file currently in use with the model
+ 
+&nbsp;&nbsp;&nbsp;&nbsp;**requirements.txt** - A list of all the required libraries to have installed before running the code
+
+&nbsp;&nbsp;&nbsp;&nbsp;**events.json** - A database where the events from Listener 1 are stored and then accessed by Listener 2
+
+&nbsp;&nbsp;&nbsp;&nbsp;**source_ids.txt** - A database containing every source id that has been processed by Listener 2
+
+&nbsp;&nbsp;&nbsp;&nbsp;**S\*.png** - An image of the plot for event S\*'s prediction
+
+&nbsp;&nbsp;&nbsp;&nbsp;**ZTF\*.png** - An image of the plot for source ZTF\*'s photometry data mapped onto one of its matching events
+
+&nbsp;&nbsp;&nbsp;&nbsp;***skymaps*** - A directory filled with all the skymaps that get retrieved by Listener 2
 
 # Process
 An 'event' is found through a gravitational wave trigger and 'sources' are found through measuring light emissions at specific points in the sky; we want to see which light sources belong to which gravitational wave events. This repository goes through a process to create and post plots for new sources in the Fritz EM+GW group. This is the process:
@@ -24,11 +36,12 @@ An 'event' is found through a gravitational wave trigger and 'sources' are found
   7. Once the plot is made, it gets posted as a comment on Fritz under the source. When looking on the Fritz page's comments, click the 'Include Bots' checkbox to see the comment. The plot is posted as a png.
 
 # Alternate Process (Not Currently Implemented)
-An alternate process similar to the process mentioned above will be used to query candidates instead of sources (candidates are EM sources that haven't been saved to a group yet) that pass the EM+GW group filter. This process will instead work with the GW+EM Sub-Threshold group (still using the EM+GW filter) using a modified version of Listener 2. As mentioned already, Listener 2 will query candidates and then match them with Events from the events database just like in the regular Process. However, after step 5 of the regular Process, the Alternate Process takes a different approach:\
-  6. If the candidate matches with an Event, a forced photometry is run on the candidate to get more accurate up to date data.\
-  7. The forced photometry data points are compared with the Event prediction to create a reduced chi squared value. If the reduced chi squared value is between 0.1 and 10, we would consider the candidate's photometry to be close enough to indicate the possibility of being a kilonova.\
-  8. If the forced photometry is "close enough" to the Event prediction, we save the candidate as a source to GW+EM Sub-Threshold and then send a Slack alert to the members of the group.\
-  9. At this point we resume steps 6 and 7 of the regular Process to create a plot and post it as a comment on the source's page on Fritz.
+An alternate process similar to the process mentioned above will be used to query candidates instead of sources (candidates are EM sources that haven't been saved to a group yet) that pass the EM+GW group filter. This process will instead work with the GW+EM Sub-Threshold group (still using the EM+GW filter) using a modified version of Listener 2. As mentioned already, Listener 2 will query candidates and then match them with Events from the events database just like in the regular Process. However, after step 5 of the regular Process, the Alternate Process takes a different approach:
+
+&nbsp;&nbsp;&nbsp;&nbsp;6. If the candidate matches with an Event, a forced photometry is run on the candidate to get more accurate up to date data.
+&nbsp;&nbsp;&nbsp;&nbsp;7. The forced photometry data points are compared with the Event prediction to create a reduced chi squared value. If the reduced chi squared value is between 0.1 and 10, we would consider the candidate's photometry to be close enough to indicate the possibility of being a kilonova.
+&nbsp;&nbsp;&nbsp;&nbsp;8. If the forced photometry is "close enough" to the Event prediction, we save the candidate as a source to GW+EM Sub-Threshold and then send a Slack alert to the members of the group.
+&nbsp;&nbsp;&nbsp;&nbsp;9. At this point we resume steps 6 and 7 of the regular Process to create a plot and post it as a comment on the source's page on Fritz.
 
   # Listener 1
   The script for this listener has instructions to follow before you run. Namely, setting up credentials in environment variables to be able to access the Kafka consumer. There also exists a debug portion currently commented out that can be used to run the code for a specific event. Currently, Listener 1 runs indefinitely using a while True loop in the script.
@@ -39,14 +52,14 @@ An alternate process similar to the process mentioned above will be used to quer
   # Events database
   The events.json file saves the events with this file format:
   {\
-    superevent_id: {\
-      "time_single": Python list\
-      "mean_preds_inverted": Python list of Python lists\
-      "uncertainty_reshaped": Python list of Python lists\
-      "time": string\
-      "alert_type": string\
-    },\
-    ...\
+  &nbsp;&nbsp;&nbsp;&nbsp;superevent_id: {\
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"time_single": Python list\
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"mean_preds_inverted": Python list of Python lists\
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"uncertainty_reshaped": Python list of Python lists\
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"time": string\
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"alert_type": string\
+  &nbsp;&nbsp;&nbsp;&nbsp;},\
+  &nbsp;&nbsp;&nbsp;&nbsp;...\
   }
 
   # Source ID database
