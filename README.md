@@ -37,11 +37,10 @@ An 'event' is found through a gravitational wave trigger and 'sources' are found
 
 # Alternate Process (Not Currently Implemented)
 An alternate process similar to the process mentioned above will be used to query candidates instead of sources (candidates are EM sources that haven't been saved to a group yet) that pass the EM+GW group filter. This process will instead work with the GW+EM Sub-Threshold group (still using the EM+GW filter) using a modified version of Listener 2. As mentioned already, Listener 2 will query candidates and then match them with Events from the events database just like in the regular Process. However, after step 5 of the regular Process, the Alternate Process takes a different approach:
-
-&nbsp;&nbsp;&nbsp;&nbsp;6. If the candidate matches with an Event, a forced photometry is run on the candidate to get more accurate up to date data.\
-&nbsp;&nbsp;&nbsp;&nbsp;7. The forced photometry data points are compared with the Event prediction to create a reduced chi squared value. If the reduced chi squared value is between 0.1 and 10, we would consider the candidate's photometry to be close enough to indicate the possibility of being a kilonova.\
-&nbsp;&nbsp;&nbsp;&nbsp;8. If the forced photometry is "close enough" to the Event prediction, we save the candidate as a source to GW+EM Sub-Threshold and then send a Slack alert to the members of the group.\
-&nbsp;&nbsp;&nbsp;&nbsp;9. At this point we resume steps 6 and 7 of the regular Process to create a plot and post it as a comment on the source's page on Fritz.
+  1. If the candidate matches with an Event, a forced photometry is run on the candidate to get more accurate up to date data.
+  2. The forced photometry data points are compared with the Event prediction to create a reduced chi squared value. If the reduced chi squared value is between 0.1 and 10, we would consider the candidate's photometry to be close enough to indicate the possibility of being a kilonova.
+  3. If the forced photometry is "close enough" to the Event prediction, we save the candidate as a source to GW+EM Sub-Threshold and then send a Slack alert to the members of the group.
+  4. At this point we resume steps 6 and 7 of the regular Process to create a plot and post it as a comment on the source's page on Fritz.
 
   # Listener 1
   The script for this listener has instructions to follow before you run. Namely, setting up credentials in environment variables to be able to access the Kafka consumer. There also exists a debug portion currently commented out that can be used to run the code for a specific event. Currently, Listener 1 runs indefinitely using a while True loop in the script.
