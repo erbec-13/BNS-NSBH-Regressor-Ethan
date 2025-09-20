@@ -40,11 +40,6 @@ def force_ipv4():
 
 force_ipv4()
 
-# IMPORTANT PREREQUISITE: Make sure to set your environment variables for GCN_CLIENT_ID and GCN_CLIENT_SECRET
-os.environ['GCN_CLIENT_ID'] = '16ijqredn34sh4gn539vn5bav4'
-os.environ['GCN_CLIENT_SECRET'] = 'g1e6rilm1lo0v38rnj86r93qr5gbvqoa1jqnkgp57m61jc7snkb'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 # Check to make sure your environment variables are set
 GCN_CLIENT_ID = os.getenv("GCN_CLIENT_ID")
 GCN_CLIENT_SECRET = os.getenv("GCN_CLIENT_SECRET")
