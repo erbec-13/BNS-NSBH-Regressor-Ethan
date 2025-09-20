@@ -49,7 +49,7 @@ An alternate process similar to the process mentioned above will be used to quer
   The script for this listener also requires you to set credentials for accessing the SkyPortal api. Currently, Listener 2 runs one time, however it has code commented out to be able to run indefinitely, but execute at a specified time of day.
 
   # Events database
-  The events.json file saves the events with this file format:
+  The events.json file saves the events with this file format:\
   {\
   &nbsp;&nbsp;&nbsp;&nbsp;superevent_id: {\
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"time_single": Python list\
