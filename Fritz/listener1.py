@@ -176,15 +176,6 @@ while True:
                 # Save the updated events dictionary back to events.json (creating the file if it doesn't exist)
                 with open(file_path, "w") as f:
                     json.dump(events, f, indent=2)
-                
-                # Plot the light curves with uncertainty and post to Fritz
-                plot_all_light_curves_with_uncertainty(
-                    time_single,
-                    mean_preds_inverted,
-                    uncertainty_reshaped,
-                    superevent_id,
-                    time
-                )
 
     # Handle exceptions gracefully and continue listening for new events
     except Exception as e:
@@ -192,4 +183,5 @@ while True:
         continue
 
 # Close the consumer when done iterating
+
 consumer.close()
