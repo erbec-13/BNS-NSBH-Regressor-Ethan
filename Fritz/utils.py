@@ -1,5 +1,6 @@
 import numpy as np
 from astropy.table import Table
+from astropy.io import fits
 import requests
 from io import BytesIO
 import base64
@@ -13,7 +14,7 @@ from astropy.time import Time
 import os
 
 SKYPORTAL_HOST = os.getenv("SKYPORTAL_HOST", "https://fritz.science")
-SKYPORTAL_TOKEN = 'bb8a0369-068c-4aca-94d7-ee9f97a6a412'
+SKYPORTAL_TOKEN = os.getenv("SKYPORTAL_TOKEN")
 if SKYPORTAL_TOKEN is None:
     raise ValueError("Please set the SKYPORTAL_TOKEN environment variable")
 HEADERS = {"Authorization": f"token {SKYPORTAL_TOKEN}"}
@@ -67,35 +68,50 @@ def get_params(event_dict):
         PAstro = 1 - prob_ter
     except:
         PAstro = 1
-    print('i')
     far = float(params.get('FAR', 0))
     skymap_url = next(item['Param']['@value'] for item in event_dict['voe:VOEvent']['What']['Group'] if item.get('@name') == 'GW_SKYMAP')
+    print(skymap_url)
     skymap_response = requests.get(skymap_url)
+    check = input("Do you want to proceed with this skymap? (y/n): ")
     skymap_bytes = skymap_response.content
     skymap = Table.read(BytesIO(skymap_bytes))
-    print('ii')
-    level, ipix = ah.uniq_to_level_ipix(skymap[np.argmax(skymap['PROBDENSITY'])]['UNIQ'])
-    print('do')
-    ra, dec = ah.healpix_to_lonlat(ipix, ah.level_to_nside(level), order='nested')
-    print(ra, dec)
+    if skymap is None:
+        print("Skipping bad or unsupported skymap.")
+        return
+    if isinstance(skymap, Table):
+        # Bayestar-like
+        level, ipix = ah.uniq_to_level_ipix(skymap[np.argmax(skymap['PROBDENSITY'])]['UNIQ'])
+        ra, dec = ah.healpix_to_lonlat(ipix, ah.level_to_nside(level), order='nested')
+        m, meta = read_sky_map(BytesIO(skymap_bytes))
+        distmean = skymap.meta.get('DISTMEAN', 'error')
+        nside = ah.level_to_nside(level)
+    else:
+        # CWB or fallback
+        try:
+            m, meta = read_sky_map(BytesIO(skymap_bytes))  # read_sky_map can handle HDUList too
+            distmean = meta.get('DISTMEAN', 'error')
+            nside = hp.npix2nside(len(m))
+            ipix = np.argmax(m)
+            ra, dec = hp.pix2ang(nside, ipix, nest=True, lonlat=True)
+        except Exception as e:
+            print(f"Could not parse CWB skymap structure: {e}")
+            return
+    #skymap = Table.read(BytesIO(skymap_bytes))  # or 'votable'
+    #level, ipix = ah.uniq_to_level_ipix(skymap[np.argmax(skymap['PROBDENSITY'])]['UNIQ'])
+    #ra, dec = ah.healpix_to_lonlat(ipix, ah.level_to_nside(level), order='nested')
     #c = SkyCoord(ra, dec, frame='icrs', unit='deg')
-    print('iii')
-    m, meta = read_sky_map(BytesIO(skymap_bytes))
-    nside = ah.level_to_nside(level)
+    #m, meta = read_sky_map(BytesIO(skymap_bytes))
     credible_levels = find_greedy_credible_levels(m)
     pixel_area_deg2 = np.sum(credible_levels <= 0.9) * hp.nside2pixarea(nside, degrees=True)
-    print('iv')
     longitude = ra.value
     latitude = dec.value
-    distmean = skymap.meta.get('DISTMEAN', 'error')
+    #distmean = skymap.meta.get('DISTMEAN', 'error')
     area_90 = pixel_area_deg2
-    print('v')
     
     far_format = 1. / (far * 3.15576e7)
     t0 = event_dict['voe:VOEvent']['WhereWhen']['ObsDataLocation']['ObservationLocation']['AstroCoords']['Time']['TimeInstant']['ISOTime']
     dateobs = Time(t0, precision=0).datetime
     time = dateobs.strftime('%Y-%m-%dT%H:%M:%S')
-    print('vi')
     
     return superevent_id, event_page, alert_type, group, prob_bbh, prob_bns, prob_nsbh, far_format, distmean, area_90, longitude, latitude, has_ns, has_remnant, has_mass_gap, significant, prob_ter, skymap, PAstro, time
 
@@ -116,15 +132,48 @@ def fetch_event_id(time):
     token = SKYPORTAL_TOKEN
     headers = {'Authorization': f'token {token}'}
     response = requests.get(f'https://fritz.science/api/gcn_event/{time}', headers=headers)
+    if response.status_code != 200:
+        print(f"API returned {response.status_code}: {response.text}")
+        return None  # Fail gracefully
     #print(response.status_code)
     #print(response.text)
 
     return response.json()['data']['id']
 
+def try_load_skymap(skymap_bytes):
+    buffer = BytesIO(skymap_bytes)
+
+    # Try loading as table
+    try:
+        return Table.read(buffer, format='fits')  # If it is a FITS table
+    except Exception as e1:
+        buffer.seek(0)  # Reset pointer for next attempt
+
+        # Try loading with astropy.io.fits to inspect content
+        try:
+            with fits.open(buffer) as hdul:
+                # Print or inspect to guide logic
+                print("FITS HDU types:", [type(hdu) for hdu in hdul])
+                print("FITS content summary:", hdul.info())
+                # Optionally return the raw HDUList for custom handling
+                return hdul
+        except Exception as e2:
+            buffer.seek(0)  # Reset again
+
+            # Try as skymap
+            try:
+                prob, header = read_sky_map(buffer, moc=True)
+                return {'prob': prob, 'header': header}
+            except Exception as e3:
+                print(f"Skymap file could not be read: {e3}")
+                return None
+
 
 def post_comment_to_skyportal(time, buffer, superevent_id):
     event_id = fetch_event_id(time)
-    print(event_id)
+    if event_id is None:
+        print(f"Could not fetch event ID for {superevent_id}. Skipping comment post.")
+        return
     body = base64.b64encode(buffer.getvalue()).decode("utf-8")
     files = {
         "text": f"GraceDB file: Oracle_{superevent_id}_LC_plot.png",
@@ -134,13 +183,12 @@ def post_comment_to_skyportal(time, buffer, superevent_id):
             "name": f"Oracle_{event_id}_LC_plot.png"
         }
     }
-    url = f"https://fritz.science/api/gcn_event/{event_id}/comments"  
-    print(url)
+    url = f"https://fritz.science/api/gcn_event/{event_id}/comments"
     token = SKYPORTAL_TOKEN
     headers = {'Authorization': f'token {token}'}
     response = requests.post(url, json=files, headers=headers)
-    print("Response Status Code:", response.status_code)
-    print("Response Content:", response.content)
+    if response.status_code == 200:
+        print(f"Comment posted successfully: {superevent_id}")
 
 
 def plot_all_light_curves_with_uncertainty(time_array, mean_preds, uncertainty, superevent_id, time):
@@ -179,13 +227,12 @@ def plot_all_light_curves_with_uncertainty(time_array, mean_preds, uncertainty, 
         plt.gca().invert_yaxis()  # Invert the y-axis for magnitude
         plt.legend()
         plt.xlim(0, 6)
-        print("me")
         plt.savefig(superevent_id+'.png')
 
         buffer = BytesIO()
         plt.savefig(buffer, format="png", bbox_inches="tight")  # Save to buffer
         buffer.seek(0)
-        plt.show()  # Show the plot after saving
+        #plt.show()
         plt.close()  # Close the figure to free memory
 
         post_comment_to_skyportal(time, buffer, superevent_id)

@@ -1,9 +1,14 @@
-# Author: Ethan Erb
+# Author: Ethan Erb (referencing and adapting code from Natalya Pletskova)
 # Listener 1
 # Purpose: This script will run a listener that collects events from new ZTF alerts. The events' ids and predictions will be saved to the disk
-# for future reference. The prediction being used is Natalya Pletskova's machine learning forecast model.
+# for future reference. The prediction being used is Natalya Pletskova's machine learning forecast model found in
+# LSTM_model_production.h5. This code assumes that the script exists in the same directory as the model,
+# the target scaler, the feature scaler, utils.py, and events.json (if it already exists). If there is no
+# events.json file, it will be created when the first event is processed.
 
 import os
+# Suppress TensorFlow logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import numpy as np
 import pandas as pd
 import traceback
@@ -19,10 +24,11 @@ from joblib import load
 from Model import build_lstm_model
 import json
 from tensorflow.keras.models import load_model
-#import traceback
-#import faulthandler
-#faulthandler.enable()
 import socket
+import warnings
+
+# Suppress specific warnings
+#warnings.filterwarnings("ignore", category=UserWarning)
 
 def force_ipv4():
     orig_getaddrinfo = socket.getaddrinfo
@@ -34,11 +40,12 @@ def force_ipv4():
 
 force_ipv4()
 
+# IMPORTANT PREREQUISITE: Make sure to set your environment variables for GCN_CLIENT_ID and GCN_CLIENT_SECRET
 os.environ['GCN_CLIENT_ID'] = '16ijqredn34sh4gn539vn5bav4'
 os.environ['GCN_CLIENT_SECRET'] = 'g1e6rilm1lo0v38rnj86r93qr5gbvqoa1jqnkgp57m61jc7snkb'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-#
+# Check to make sure your environment variables are set
 GCN_CLIENT_ID = os.getenv("GCN_CLIENT_ID")
 GCN_CLIENT_SECRET = os.getenv("GCN_CLIENT_SECRET")
 GCN_GROUP_ID = str(os.getenv("GCN_GROUP_ID", "oraclefritzbot"))
@@ -47,6 +54,7 @@ if not GCN_CLIENT_ID or not GCN_CLIENT_SECRET:
         "GCN_CLIENT_ID and GCN_CLIENT_SECRET must be set as environment variables"
     )
 
+# Set up the Kafka consumer where we retrieve GCN notices
 config = {'group.id': 'bnsAndnsbhLCforslack', 'auto.offset.reset': 'earliest', 'enable.auto.commit': False}
 consumer = Consumer(
     config=config,
@@ -62,60 +70,67 @@ consumer.subscribe(
     ]
 )
 
-client = GraceDb()
+# ~~~ DEBUGGING CODE ~~~
+# Uncomment this section to download a specific event from GraceDB for testing purposes
+# In the while loop below, pass 'content' to parse_gcn() instead of 'value'
 
-superevent_id = "S250818k"
+#client = GraceDb()
+#
+#superevent_id = "S250818k"
+#
+## Choose the VOEvent file you want
+#filename = "S250818k-4-Update.xml"
+#
+## Download the file content
+#response = client.files(superevent_id, filename)
 
-# Choose the VOEvent file you want
-filename = "S250818k-4-Update.xml"
+## Save it locally if needed
+#with open(filename, "wb") as f:
+#    f.write(response.read())
 
-# Download the file content
-response = client.files(superevent_id, filename)
+#print(f"Downloaded {filename}")
 
-# Save it locally if needed
-with open(filename, "wb") as f:
-    f.write(response.read())
+#voevent = client.files(superevent_id, filename)
+#content = voevent.read()
 
-print(f"Downloaded {filename}")
-
-voevent = client.files(superevent_id, filename)
-content = voevent.read()
+# ~~~ END DEBUGGING CODE ~~~
 
 
 # get the base directory, as the directory where this file is located
 base_dir = os.path.dirname(os.path.abspath(__file__))
-print(base_dir)
+
+# Load the prediction model and the scalers
 print("Loading model and scalers...")
 target_scaler = load(f"{base_dir}/target_scaler_O4.joblib")
 feature_scaler = load(f"{base_dir}/feature_scaler_O4.joblib")
 print("Building LSTM model once...")
 num_time_points = 30
 input_shape = (num_time_points, feature_scaler.transform(np.zeros((1, 6))).shape[1])
-#model = build_lstm_model(input_shape=input_shape)
-#model = load(f"{base_dir}/LSTMpredLC__PAstro.joblib")
 model = load_model(
     f"{base_dir}/LSTM_model_production.h5",
     compile=False  # Ignore optimizer, loss, and metrics
 )
+# Display the feature names used in the model
 print(feature_scaler.feature_names_in_)
 
-
-counter = 0
+# Iterate indefinitely over new GCN notices
 while True:
-    print(counter)
     try:
+        # Retrieve the next message packet from the Kafka consumer
         for message in consumer.consume():
+            # Get the parameters from the GCN notice
             value = message.value()
-            print('a')
-            parsed = parse_gcn(content)
-            print('b')
+            parsed = parse_gcn(value)
+            if (graceid := next((p['@value'] for p in parsed['voe:VOEvent']['What']['Param'] if p.get('@name') == 'GraceID'), None)) and graceid.startswith("M"):
+                continue
             params = get_params(parsed)
-            print('c')
             superevent_id, event_page, alert_type, group, prob_bbh, prob_bns, prob_nsbh, far_format, distmean, area_90, longitude, latitude, has_ns, has_remnant, has_mass_gap, significant, prob_ter, skymap, PAstro, time = params
 
+            # Display the event id and alert type
             print(superevent_id + " " + alert_type)
-            counter+=1
-            if alert_type != "RETRACTION" and distmean != "error": #superevent_id == "S250818k" and 
+
+            # Only process non-retraction alerts with valid distance
+            if alert_type != "RETRACTION" and distmean != "error":
                 print(f"Processing {superevent_id} ({alert_type})")
                 
                 X = np.vstack((area_90, distmean, has_ns, has_remnant, has_mass_gap, PAstro)).T
@@ -134,10 +149,6 @@ while True:
 
                 # Reshape X data for LSTM input based on the model's input shape
                 X_new_reshaped = X_new.reshape((X_new.shape[0], 1, X_new.shape[1]))
-                #X_new_reshaped = X_new.reshape((X_new.shape[0], 90, X_new.shape[1]))
-
-                #X_tiled = np.tile(X_new, (1, num_time_points)).reshape((X_new.shape[0], num_time_points, X_new.shape[1]))
-
 
                 n_mc_samples = 1000
                 mean_preds_new, uncertainty_new = predict_with_uncertainty(model, X_new_reshaped, n_iter=n_mc_samples)
@@ -151,21 +162,27 @@ while True:
                 # Reshape uncertainty to match mean_preds_inverted shape
                 uncertainty_reshaped = uncertainty_new.reshape(uncertainty_new.shape[0], num_time_points, 3)
 
+                # Store the event data needed to plot the prediction
                 event_data = {"time_single": time_single.tolist(), "mean_preds_inverted": mean_preds_inverted.tolist(), "uncertainty_reshaped": uncertainty_reshaped.tolist(), "time": time, "alert_type": alert_type}
                 
+                # Identify the events.json file to store the event data to
                 file_path = "events.json"
 
+                # Load existing events from events.json if it exists, otherwise create a new dictionary
                 if os.path.exists(file_path):
                     with open(file_path, "r") as f:
                         events = json.load(f)
                 else:
                     events = {}
                 
+                # Add or update the event data for the current superevent_id
                 events[superevent_id] = event_data
 
+                # Save the updated events dictionary back to events.json (creating the file if it doesn't exist)
                 with open(file_path, "w") as f:
                     json.dump(events, f, indent=2)
                 
+                # Plot the light curves with uncertainty and post to Fritz
                 plot_all_light_curves_with_uncertainty(
                     time_single,
                     mean_preds_inverted,
@@ -173,14 +190,11 @@ while True:
                     superevent_id,
                     time
                 )
-            else:
-                counter-=1
 
-
+    # Handle exceptions gracefully and continue listening for new events
     except Exception as e:
-        if counter != 0:
-            print(e)
-            traceback.print_exc()
+        print(e)
         continue
 
+# Close the consumer when done iterating
 consumer.close()

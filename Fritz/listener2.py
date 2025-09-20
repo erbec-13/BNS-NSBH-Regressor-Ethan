@@ -1,3 +1,11 @@
+# Author: Ethan Erb (referencing and adapting code from Natalya Pletskova)
+# Listener 1
+# Purpose: This script will query the SkyPortal API for new sources in the EM+GW group and check if they
+# match any recent GW events in space (within the 90% skymap region) and time (within -3 to +7 days of the event).
+# If a source matches with an event, the script will plot the source's photometry onto the event's predicted
+# light curve. The prediction uses Natalya Pletskova's machine learning forecast model found in
+# LSTM_model_production.h5. The code assumes there is an events.json file in the same directory that contains
+# GW events.
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -15,8 +23,17 @@ from astropy.io import fits
 from astropy.time import Time
 import matplotlib.pyplot as plt
 from io import BytesIO
+import base64
 
+# Set the SkyPortal token as an environment variable for security
+SKYPORTAL_TOKEN = os.getenv("SKYPORTAL_TOKEN")
+if SKYPORTAL_TOKEN is None:
+    raise ValueError("Please set the SKYPORTAL_TOKEN environment variable")
+
+# This function uses Natalya's plotting code from utils.py to plot the source's photometry onto the event's
+# predicted light curve
 def plot_source_on_event(source_id, event_id):
+    # Retrieve the event information from events.json
     with open("events.json") as f:
         event = json.load(f).get(event_id)
     time_array = np.array(event.get("time_single"))
@@ -25,13 +42,16 @@ def plot_source_on_event(source_id, event_id):
     superevent_id = event_id
     time = event.get("time")
 
+    # Convert time into MJD
     event_t = Time(time, format='isot', scale='utc')
     event_mjd = event_t.mjd
 
+    # Fetch photometry data for the source from SkyPortal
     photometry_url = f"https://fritz.science/api/sources/{source_id}/photometry"
-    token = "bb8a0369-068c-4aca-94d7-ee9f97a6a412"
+    token = SKYPORTAL_TOKEN
     headers = {"Authorization": f"token {token}"}
 
+    # Get the photometry for the source
     photometry_r = requests.get(photometry_url, headers=headers)
 
     if photometry_r.status_code != 200:
@@ -70,44 +90,50 @@ def plot_source_on_event(source_id, event_id):
                              mean_curve_new[:, i] + 5 * uncertainty_curve_new[:, i], 
                              color=colors[filter_names[i]], alpha=0.2)
 
+        plt.legend()
+        
         for obj in photometry_list:
             if obj.get("mag") is not None:
                 # Plot the observed magnitude
                 plt.errorbar(obj['mjd'] - event_mjd, obj['mag'], yerr=obj['magerr'], fmt='o', label=f'Observed {obj["filter"]}', color=colors[obj["filter"]])
             else:
                 # Plot the upper limit
-                plt.scatter(obj['mjd'] - event_mjd, obj['mag'], marker='^', s=200, color=colors[obj["filter"]])
+                plt.plot(obj['mjd'] - event_mjd, obj['limiting_mag'], marker='v', color=colors[obj["filter"]])
 
         # Plot settings
         plt.xlabel('Time (days)')
         plt.ylabel('Magnitude AB')
         plt.gca().invert_yaxis()  # Invert the y-axis for magnitude
-        plt.legend()
         plt.xlim(0, 6)
-        print("me")
-        plt.savefig(superevent_id+'.png')
+        plt.savefig(source_id+'.png')
 
+        # Save the plot
         buffer = BytesIO()
-        plt.savefig(buffer, format="png", bbox_inches="tight")  # Save to buffer
+        # Uncomment the next line to save the plot to the directory
+        #plt.savefig(buffer, format="png", bbox_inches="tight")  # Save to buffer
         buffer.seek(0)
-        plt.show()  # Show the plot after saving
         plt.close()  # Close the figure to free memory
 
         #post_comment_to_skyportal(time, buffer, superevent_id)
+        body = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        files = {
+            "text": f"{source_id}_{superevent_id}_LC_plot.png",
+
+            "attachment": {
+                "body": body,
+                "name": f"{source_id}_{superevent_id}_LC_plot.png"
+            }
+        }
+        url = f"https://fritz.science/api/sources/{source_id}/comments"
+        headers = {'Authorization': f'token {token}'}
+        response = requests.post(url, json=files, headers=headers)
+        if response.status_code == 200:
+            print(f"Comment posted successfully: {source_id}")
     return
 
-# Function 1: Download skymap from GraceDB
+# This function retrieves the bayestar skymap for a GraceDB event and saves it in a directory named skymaps
+# Created with the assistance of ChatGPT
 def get_skymap_path(graceid, download_dir="skymaps"):
-    """
-    Downloads the skymap FITS file for a GCN/GraceDB event.
-    
-    Parameters:
-        graceid (str): GraceDB event ID, e.g., "S230518h"
-        download_dir (str): Directory to save the skymap
-    
-    Returns:
-        str: Full path to the downloaded skymap file
-    """
     os.makedirs(download_dir, exist_ok=True)
     client = GraceDb()
 
@@ -125,19 +151,10 @@ def get_skymap_path(graceid, download_dir="skymaps"):
 
     raise FileNotFoundError(f"No skymap file found for event {graceid}")
 
-# Function 2: Check if RA/Dec is inside the 90% credible region
+# This function checks if a coordinate in the sky (ra, dec) is within the 90% confidence region of a
+# given skymap
+# Created with the assistance of ChatGPT
 def is_in_90_percent(ra, dec, skymap_path):
-    """
-    Determines if a given sky position is within the 90% credible region of the skymap.
-    
-    Parameters:
-        ra (float): Right Ascension in degrees
-        dec (float): Declination in degrees
-        skymap_path (str): Path to the skymap FITS file
-    
-    Returns:
-        bool: True if within 90% credible region, else False
-    """
     with fits.open(skymap_path) as hdul:
         prob = hdul[1].data['PROB']
         nside = hp.npix2nside(len(prob))
@@ -155,24 +172,7 @@ def is_in_90_percent(ra, dec, skymap_path):
 
         return prob[ipix] >= level_90
 
-
-
-base_dir = os.path.dirname(os.path.abspath(__file__))
-filepath = f"{base_dir}/source_ids.txt"
-
-# Only create the file if it doesn't exist
-if not os.path.exists(filepath):
-    with open(filepath, "w") as f:
-        pass  # Creates an empty file
-
-
-base_url = "https://fritz.science/api"
-url = base_url + "/sources"
-token = "bb8a0369-068c-4aca-94d7-ee9f97a6a412"
-headers = {"Authorization": f"token {token}"}
-group_ids = [1544]  # If applicable
-max_retries = 3
-
+# Check if the source id is in the file where we store previously seen source ids
 def id_in_file(string_id, filepath):
     with open(filepath, "r") as f:
         for line in f:
@@ -180,11 +180,9 @@ def id_in_file(string_id, filepath):
                 return True
     return False
 
-
-def api(method, endpoint, params=None, data=None):
-    url = f"{base_url}/{endpoint}"
-    return requests.request(method, url, headers=headers, params=params, json=data)
-
+# This function checks if a source matches with any events younger than 10 days old in events.json in time
+# (3 days before alert time to 7 days after alert time) and space (within the 90% skymap region)
+# If a match is found, the source's photometry is plotted onto the event's predicted light curve)
 def check_source_with_events(source):
     # Load events
     with open("events.json") as f:
@@ -196,7 +194,7 @@ def check_source_with_events(source):
         # Parse event time
         event_time = datetime.fromisoformat(event_info["time"]).replace(tzinfo=timezone.utc)
         age = now - event_time
-        if age > timedelta(days=30):
+        if age > timedelta(days=10):
             continue  # Skip old events
 
         source_time = datetime.fromisoformat(source.get("created_at")).replace(tzinfo=timezone.utc)
@@ -212,6 +210,8 @@ def check_source_with_events(source):
         if skymap_path:
             spatial_ok = is_in_90_percent(source.get("ra"), source.get("dec"), skymap_path)
 
+        # If the source matches the event in both time and space, display the event id and plot the source's
+        # photometry onto the event's predicted light curve
         if spatial_ok:
             print(event_id)
             plot_source_on_event(source_id, event_id)
@@ -222,7 +222,8 @@ def check_source_with_events(source):
     return
 
 
-def task():
+# Move the code into this function to run at a specified time
+def scheduled_run():
     print("Running task at", datetime.now())
 
 scheduler = BlockingScheduler()
@@ -230,21 +231,31 @@ scheduler = BlockingScheduler()
 # Use a DST-aware timezone
 pacific = pytz.timezone("US/Pacific")
 
-trigger = CronTrigger(hour=11, minute=0, timezone=pacific)  # 11:00 AM PT every day
-
-#scheduler.add_job(task, trigger)
-
+# ~~~ IMPORTANT SCHEDULING CODE ~~~
+# Uncomment the following lines to run the scheduled_run function at a specific time
+# Multiple triggers can be added as needed, as long as there is a corresponding scheduler.add_job line
+#trigger = CronTrigger(hour=11, minute=0, timezone=pacific)  # 11:00 AM PT every day
+#scheduler.add_job(scheduled_run, trigger)
 #scheduler.start()
 
-# API Code
+# Create a file to store previously seen source ids
+base_dir = os.path.dirname(os.path.abspath(__file__))
+filepath = f"{base_dir}/source_ids.txt"
 
+# Only create the file if it doesn't exist
+if not os.path.exists(filepath):
+    with open(filepath, "w") as f:
+        pass  # Creates an empty file
+
+# Establish the information needed to connect to the SkyPortal API
 base_url = "https://fritz.science/api"
 url = base_url + "/sources"
-token = "bb8a0369-068c-4aca-94d7-ee9f97a6a412"
+token = SKYPORTAL_TOKEN
 headers = {"Authorization": f"token {token}"}
 group_ids = [1544]  # If applicable
 max_retries = 3
 
+# Introduce the starting pagination parameters
 params = {
     'pageNumber': 1,
     'numPerPage': 100,
@@ -254,16 +265,18 @@ params = {
     'queryID': None # Server will return this in the first response
 }
 
+# Create a dict to store all sources by their id
 all_sources = {}
 
+# Keep track of whether we've found a source that has already been processed
 first_source_found = False
 
 now = datetime.now(UTC)
 
-yes = 0
-
+# Run the code to fetch sources with 3 attempts in case of a request error
 retries_remaining = max_retries
 while retries_remaining > 0:
+    # Query the SkyPortal API for sources
     r = requests.get(
         url,
         params=params,
@@ -277,6 +290,7 @@ while retries_remaining > 0:
 
     data = r.json()
 
+    # Create a list of sources from the current page of the query
     source_list = data["data"].get("sources", [])
 
     if not source_list:
@@ -289,33 +303,39 @@ while retries_remaining > 0:
         retry_attempts -= 1
         time.sleep(5)
         continue
-
+    
+    # For every source in the source list
     for src in source_list:
+        # Retrieve the source id and its creation time
         src_id = src.get("id")
         src_time = src.get("created_at")
-        print(now)
-        print(src_time)
-        if ((now - datetime.fromisoformat(src_time).replace(tzinfo=timezone.utc)) > timedelta(days=30)) or id_in_file(src_id, filepath):
-            first_source_found = True
+        # If the source is older than 10 days or has already been processed, stop looking at sources
+        if ((now - datetime.fromisoformat(src_time).replace(tzinfo=timezone.utc)) > timedelta(days=10)) or id_in_file(src_id, filepath):
+            first_source_found = True # Indicate that we have found the newest source we don't care about
             break
-        if yes == 0:
-            print(src)
-            yes = 1
         if src_id:
+            # Add the source to the all_sources dict
             all_sources[src_id] = src
 
+    # Figure out how many total sources there are and how many we have fetched so far
     total_matches = data["data"]["totalMatches"]
     params["queryID"] = data["data"]["queryID"] # Pass the queryID to the next request
 
+    # Display how many sources have been fetched so far
     print(f"Fetched {len(all_sources)} of {total_matches} sources.")
 
+    # If we have found a source that is either too old or has already been processed, stop querying sources
+    # Stop querying sources if we have fetched all available sources
     if first_source_found or len(all_sources) >= total_matches:
         break
 
+    # Move to the next page of sources
     params['pageNumber'] += 1
 
+# For every source in all_sources, check if it matches with any recent GW events
 for src_id in all_sources:
     print(f"Checking source {src_id}")
+    # Save the source id to the source_ids.txt file to avoid reprocessing it in the future
     with open(filepath, "a") as f:
         f.write(f"{src_id}\n")
     check_source_with_events(all_sources[src_id])
